@@ -1,1 +1,4 @@
-pocketflow>=0.0.1
+PyYAML
+pocketflow
+google-genai
+python-dotenv

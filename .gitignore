@@ -90,3 +90,8 @@ coverage/
 
 # Optional REPL history
 .node_repl_history 
+
+.venv
+
+prompt.txt
+response.txt
