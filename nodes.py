@@ -3,7 +3,7 @@ Node definitions for the Travel Guide Flow
 """
 
 from pocketflow import Node, BatchNode
-from utils import call_llm, search_web
+from utils import call_llm, search_web, extract_yaml_str
 import yaml
 
 
@@ -56,7 +56,7 @@ start_date: <date if mentioned or null>
 Output only the YAML block.
 """
         response = call_llm(prompt)
-        yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+        yaml_str = extract_yaml_str(response)
         parsed = yaml.safe_load(yaml_str)
 
         return parsed
@@ -148,7 +148,7 @@ questions:
 ```
 """
         response = call_llm(prompt)
-        yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+        yaml_str = extract_yaml_str(response)
         parsed = yaml.safe_load(yaml_str)
 
         return parsed["questions"]
@@ -199,7 +199,7 @@ start_date: <value or null>
 ```
 """
         response = call_llm(prompt)
-        yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+        yaml_str = extract_yaml_str(response)
         parsed = yaml.safe_load(yaml_str)
 
         # Update trip_info
@@ -269,6 +269,9 @@ class GatherTravelDetails(BatchNode):
             f"{destination} transportation getting around",
             f"{destination} restaurants food recommendations",
             f"{destination} activities things to do",
+            f"{destination} safety tips",
+            f"{destination} local customs",
+            f"{destination} weather forecast"
         ]
 
         return categories
@@ -295,6 +298,22 @@ class GatherTravelDetails(BatchNode):
         )
         return "default"
 
+class CalculateBudget(Node):
+    def prep(self, shared):
+        return {
+            "budget": shared["trip_info"]["budget"],
+            "duration": shared["trip_info"]["duration_days"],
+            "travelers": shared["trip_info"]["travelers"],
+            "daily_plans": shared["daily_plans"]
+        }
+    
+    def exec(self, data):
+        # Use LLM to create budget breakdown
+        prompt = f"Create budget breakdown for: {data}"
+        return call_llm(prompt)
+    
+    def post(self, shared, prep_res, exec_res):
+        shared["budget_breakdown"] = exec_res
 
 class PlanDailyItinerary(BatchNode):
     """Create detailed daily itineraries"""
@@ -345,7 +364,7 @@ daily_plans:
 ```
 """
         response = call_llm(prompt)
-        yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+        yaml_str = extract_yaml_str(response)
         parsed = yaml.safe_load(yaml_str)
 
         shared["daily_plans"] = parsed["daily_plans"]

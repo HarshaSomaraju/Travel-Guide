@@ -4,6 +4,7 @@ Flow creation for the Travel Guide system
 
 from pocketflow import Flow
 from nodes import (
+    CalculateBudget,
     GetUserRequest,
     ParseRequest,
     DecideNeedInfo,
@@ -42,7 +43,7 @@ def create_travel_guide_flow():
     gather_details = GatherTravelDetails()
     plan_days = PlanDailyItinerary()
     combine_plan = CombineFinalPlan()
-    
+    calculate_budget = CalculateBudget()
     # Connect nodes in sequence
     get_request >> parse_request >> decide
     
@@ -54,7 +55,7 @@ def create_travel_guide_flow():
     decide - "proceed" >> research
     
     # Main planning pipeline
-    research >> gather_details >> plan_days >> combine_plan
+    research >> gather_details >> plan_days >> calculate_budget >> combine_plan
     
     # Create and return the flow
     return Flow(start=get_request)

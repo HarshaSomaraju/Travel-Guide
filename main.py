@@ -12,6 +12,8 @@ to international multi-week adventures by:
 from flow import create_travel_guide_flow
 from dotenv import load_dotenv
 
+from storage import save_trip
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -54,6 +56,8 @@ def main():
     print("YOUR PERSONALIZED TRAVEL GUIDE")
     print("="*80 + "\n")
     print(shared["final_travel_guide"])
+
+    save_trip(shared)
 
 if __name__ == "__main__":
     main()
