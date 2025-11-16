@@ -9,8 +9,8 @@ to international multi-week adventures by:
 4. Creating detailed day-by-day itineraries
 """
 
-from flow import create_travel_guide_flow
 from dotenv import load_dotenv
+from flow import create_travel_guide_flow
 
 from storage import save_trip
 
@@ -46,11 +46,11 @@ def main():
         "daily_plans": [],
         "final_travel_guide": ""
     }
-    
+
     # Create and run the flow
     travel_flow = create_travel_guide_flow()
     travel_flow.run(shared)
-    
+
     # Display the final travel guide
     print("\n" + "="*80)
     print("YOUR PERSONALIZED TRAVEL GUIDE")
