@@ -12,91 +12,91 @@ import requests
 import os
 
 
-def call_llm(prompt: str, estimated_tokens: int = 1000) -> str:
-    """
-    Call LLM using Groq API
-
-    Args:
-        prompt: The prompt to send to the LLM
-        estimated_tokens: Estimated token count (for logging)
-
-    Returns:
-        The LLM's response as a string
-    """
-    client = Groq(
-        api_key=os.getenv("GROQ_API_KEY"),
-    )
-
-    # Choose model based on your needs
-    # Options: llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768
-    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-
-    print(f"[LLM] Calling Groq {model}...")
-
-    try:
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            model=model,
-            temperature=0.7,
-            max_tokens=4096,  # Adjust based on your needs
-        )
-
-        return chat_completion.choices[0].message.content or ""
-
-    except Exception as e:
-        error_str = str(e)
-
-        # Handle rate limits gracefully
-        if "rate_limit" in error_str.lower() or "429" in error_str:
-            print(f"[LLM] Rate limit hit. Waiting 60s...")
-            time.sleep(60)
-            # Retry once
-            try:
-                chat_completion = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=model,
-                    temperature=0.7,
-                    max_tokens=4096,
-                )
-                return chat_completion.choices[0].message.content or ""
-            except Exception as retry_error:
-                print(f"[LLM ERROR] Retry failed: {retry_error}")
-                raise
-
-        print(f"[LLM ERROR] {e}")
-        raise
-
-
-# def call_llm(prompt: str) -> str:
+# def call_llm(prompt: str, estimated_tokens: int = 1000) -> str:
 #     """
-#     Call LLM with the given prompt
+#     Call LLM using Groq API
 
 #     Args:
 #         prompt: The prompt to send to the LLM
+#         estimated_tokens: Estimated token count (for logging)
 
 #     Returns:
 #         The LLM's response as a string
 #     """
-#     # Using Google Gemini as an example
-#     # Users should replace with their preferred LLM
-#     from google import genai
-
-#     client = genai.Client(
-#         api_key=os.getenv("GEMINI_API_KEY", ""),
+#     client = Groq(
+#         api_key=os.getenv("GROQ_API_KEY"),
 #     )
-#     model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+#     # Choose model based on your needs
+#     # Options: llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768
+#     model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+#     print(f"[LLM] Calling Groq {model}...")
 
 #     try:
-#         response = client.models.generate_content(model=model, contents=[prompt])
-#         return response.text or ""
+#         chat_completion = client.chat.completions.create(
+#             messages=[
+#                 {
+#                     "role": "user",
+#                     "content": prompt,
+#                 }
+#             ],
+#             model=model,
+#             temperature=0.7,
+#             max_tokens=4096,  # Adjust based on your needs
+#         )
+
+#         return chat_completion.choices[0].message.content or ""
+
 #     except Exception as e:
-#         print(f"Error calling LLM: {e}")
+#         error_str = str(e)
+
+#         # Handle rate limits gracefully
+#         if "rate_limit" in error_str.lower() or "429" in error_str:
+#             print(f"[LLM] Rate limit hit. Waiting 60s...")
+#             time.sleep(60)
+#             # Retry once
+#             try:
+#                 chat_completion = client.chat.completions.create(
+#                     messages=[{"role": "user", "content": prompt}],
+#                     model=model,
+#                     temperature=0.7,
+#                     max_tokens=4096,
+#                 )
+#                 return chat_completion.choices[0].message.content or ""
+#             except Exception as retry_error:
+#                 print(f"[LLM ERROR] Retry failed: {retry_error}")
+#                 raise
+
+#         print(f"[LLM ERROR] {e}")
 #         raise
+
+
+def call_llm(prompt: str) -> str:
+    """
+    Call LLM with the given prompt
+
+    Args:
+        prompt: The prompt to send to the LLM
+
+    Returns:
+        The LLM's response as a string
+    """
+    # Using Google Gemini as an example
+    # Users should replace with their preferred LLM
+    from google import genai
+
+    client = genai.Client(
+        api_key=os.getenv("GEMINI_API_KEY", ""),
+    )
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+    try:
+        response = client.models.generate_content(model=model, contents=[prompt])
+        return response.text or ""
+    except Exception as e:
+        print(f"Error calling LLM: {e}")
+        raise
 
 
 # def call_llm(prompt: str) -> str:
@@ -176,6 +176,50 @@ def search_web(query: str) -> List[Dict]:
         return []
     except Exception as e:
         print(f"[SEARCH ERROR] {e}")
+        return []
+
+
+def get_place_details(query: str) -> List[Dict]:
+    """
+    Get place details using Serper.dev Places API
+
+    Args:
+        query: The place to search for
+
+    Returns:
+        List of places with details including rating and reviews
+    """
+    print(f"[PLACE SEARCH] Searching for: {query}")
+
+    url = "https://google.serper.dev/places"
+
+    payload = {"q": query, "location": "India", "gl": "in", "num": 5}
+
+    headers = {
+        "X-API-KEY": os.getenv("SERPER_API_KEY"),
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=50)
+        response.raise_for_status()
+        results = response.json()
+
+        places = []
+        for place in results.get("places", []):
+            places.append({
+                "title": place.get("title", ""),
+                "address": place.get("address", ""),
+                "rating": place.get("rating", "N/A"),
+                "reviews": place.get("reviews", "N/A"),
+                "rating_count": place.get("userRatingCount", "N/A"),
+                "category": place.get("category", ""),
+            })
+        
+        return places
+
+    except Exception as e:
+        print(f"[PLACE SEARCH ERROR] {e}")
         return []
 
 

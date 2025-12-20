@@ -37,7 +37,7 @@ def main():
         "missing_info": [],
         "clarification_questions": [],
         "clarification_round": 0,
-        "max_clarification_rounds": 2,
+        "max_clarification_rounds": 5,
         "destination_info": {},
         "accommodations": [],
         "transportation": {},

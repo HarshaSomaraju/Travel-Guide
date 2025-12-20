@@ -3,9 +3,9 @@ Node definitions for the Travel Guide Flow
 """
 
 from pocketflow import Node, BatchNode
-from utils import call_llm, search_web, extract_yaml_str
+from utils import call_llm, search_web, extract_yaml_str, get_place_details
 import yaml
-
+from yaml.scanner import ScannerError
 
 class GetUserRequest(Node):
     """Initial node to capture user's travel request"""
@@ -298,6 +298,77 @@ class GatherTravelDetails(BatchNode):
         )
         return "default"
 
+
+class IdentifyPlaces(Node):
+    """Identify specific places to review from gathered details"""
+
+    def prep(self, shared):
+        return {
+            "accommodations": shared.get("accommodations", []),
+            "restaurants": shared.get("restaurants", []),
+            "activities": shared.get("activities", []),
+        }
+
+    def exec(self, data):
+        # Format text for LLM
+        text_content = ""
+        for cat, items in data.items():
+            text_content += f"\n--- {cat.upper()} ---\n"
+            # Use top 3 items from each category to avoid context overflow
+            for item in items:
+                query_results = item.get("results", [])
+                for result in query_results:
+                    text_content += f"{result.get('title', '')}: {result.get('snippet', '')}\n"
+
+        prompt = f"""
+Identify the top 5 most interesting specific places (hotels, restaurants, attractions) mentioned in this text that are worth checking reviews for.
+Return ONLY a YAML list of names.
+
+Text:
+{text_content}
+
+```yaml
+places:
+  - <Place Name 1>
+  - <Place Name 2>
+```
+"""
+        response = call_llm(prompt)
+        yaml_str = extract_yaml_str(response)
+        parsed = yaml.safe_load(yaml_str)
+        return parsed.get("places", [])
+
+    def post(self, shared, prep_res, exec_res):
+        shared["places_to_review"] = exec_res
+        print(f"\n[IDENTIFY] Identified {len(exec_res)} places to review")
+        return "default"
+
+
+class GetPlaceReviews(BatchNode):
+    """Fetch reviews and details for identified places"""
+
+    def prep(self, shared):
+        return shared.get("places_to_review", [])
+
+    def exec(self, place_name):
+        # Get structured details (rating, address)
+        details = get_place_details(place_name)
+
+        # Get review snippets via web search
+        reviews_search = search_web(f"latest reviews of {place_name} positive negative")
+
+        return {
+            "name": place_name,
+            "details": details[0] if details else {},  # Take top match
+            "review_snippets": [r["snippet"] for r in reviews_search[:3]],
+        }
+
+    def post(self, shared, prep_res, exec_res_list):
+        shared["place_reviews"] = exec_res_list
+        print(f"\n[REVIEWS] Fetched reviews for {len(exec_res_list)} places")
+        return "default"
+
+
 class CalculateBudget(Node):
     def prep(self, shared):
         return {
@@ -330,6 +401,7 @@ class PlanDailyItinerary(BatchNode):
         # Generate plans for all days
         trip_info = shared["trip_info"]
         destination_info = shared["destination_info"]
+        place_reviews = shared.get("place_reviews", [])
 
         prompt = f"""
 Create a detailed daily itinerary for a {trip_info['duration_days']}-day trip to {trip_info['destination']}.
@@ -343,6 +415,9 @@ Trip Details:
 Research Data Available:
 {destination_info[:3]}  # Use first 3 research results
 
+Top Places & Reviews:
+{place_reviews}
+
 Create a day-by-day plan. For each day include:
 - Morning activities
 - Afternoon activities  
@@ -351,6 +426,7 @@ Create a day-by-day plan. For each day include:
 - Transportation tips
 
 Return as YAML:
+strictly follow yaml structure and if there are : or any special characters in the content, escape those characters
 ```yaml
 daily_plans:
   day_1:
@@ -365,7 +441,16 @@ daily_plans:
 """
         response = call_llm(prompt)
         yaml_str = extract_yaml_str(response)
-        parsed = yaml.safe_load(yaml_str)
+        try:
+            parsed = yaml.safe_load(yaml_str)
+        except ScannerError as e:
+            error_prompt = f"""While parsing the below yaml I am getting error as {str(e)}.
+{yaml_str}
+
+Can you fix the parsing issue correcting the yaml. Return only the yaml and nothing else.
+            """
+            yaml_str = call_llm(error_prompt)
+            parsed = yaml.safe_load(yaml_str)
 
         shared["daily_plans"] = parsed["daily_plans"]
         print(f"\n[PLANNING] Created {len(parsed['daily_plans'])} daily itineraries")
