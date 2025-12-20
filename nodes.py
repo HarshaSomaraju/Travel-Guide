@@ -424,6 +424,7 @@ Create a day-by-day plan. For each day include:
 - Evening activities
 - Restaurant recommendations
 - Transportation tips
+- Be reasonable with what can be covered on each day
 
 Return as YAML:
 strictly follow yaml structure and if there are : or any special characters in the content, escape those characters
@@ -485,7 +486,7 @@ Additional Info:
 
 Format as a beautiful travel guide with:
 1. Trip Overview
-2. Day-by-Day Itinerary (detailed)
+2. Day-by-Day Itinerary (detailed) that is practically possible
 3. Accommodation Recommendations
 4. Transportation Guide
 5. Important Tips
