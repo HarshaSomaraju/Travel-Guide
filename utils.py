@@ -4,15 +4,58 @@ Utility functions for the Travel Guide system
 
 import json
 import os
+import shutil
 import time
 from typing import List, Dict
 
 from groq import Groq
 import requests
 import os
+import subprocess
 
+def call_gemini_cli(prompt: str) -> str:
+    # Clear the IDE environment variable if it's causing the hang
+    env = os.environ.copy()
+    env["GEMINI_DISABLE_IDE"] = "true" # Common flag for these types of CLIs
 
-def call_llm(prompt: str, estimated_tokens: int = 1000) -> str:
+    # Use a stable model
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+    # Dynamically find the full path to the 'gemini' executable
+    gemini_path = shutil.which("gemini")
+
+    if not gemini_path:
+        print("Error: 'gemini' CLI not found in system PATH.")
+        return ""
+    
+    gemini_path = 'C:\\Users\\hp\\AppData\\Local\\nvs\\default\\gemini.cmd'
+    # cmd = [
+    #     gemini_path,
+    #     f"--model={model}"
+    # ]
+    cmd = [
+        gemini_path
+    ]
+
+    try:
+        # 30-second timeout prevents the "stuck" process forever
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True
+        )
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        print("Process timed out after 30 seconds.")
+        return ""
+    except subprocess.CalledProcessError as e:
+        print(f"CLI Error: {e.stderr}")
+        return ""
+
+def call_llm_groq(prompt: str, estimated_tokens: int = 1000) -> str:
     """
     Call LLM using Groq API
 
@@ -70,6 +113,13 @@ def call_llm(prompt: str, estimated_tokens: int = 1000) -> str:
 
         print(f"[LLM ERROR] {e}")
         raise
+
+
+def call_llm(prompt: str) -> str:
+    """
+    Call LLM with the given prompt
+    """
+    return call_gemini_cli(prompt)
 
 
 # def call_llm(prompt: str) -> str:
