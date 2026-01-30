@@ -7,10 +7,37 @@ from utils import call_llm, search_web, extract_yaml_str, get_place_details
 import yaml
 from yaml.scanner import ScannerError
 
+
+def emit_event(shared, event_type: str, content: str, **metadata):
+    """
+    Helper to emit events for real-time streaming.
+    Works with API mode (has emitter) and CLI mode (just prints).
+    """
+    emitter = shared.get("emitter")
+    if emitter:
+        # API mode - emit to SSE stream
+        method = getattr(emitter, event_type, None)
+        if method:
+            method(content, **metadata) if metadata else method(content)
+        else:
+            emitter.emit(event_type, content, metadata)
+    else:
+        # CLI mode - just print
+        print(f"[{event_type.upper()}] {content}")
+
 class GetUserRequest(Node):
     """Initial node to capture user's travel request"""
 
-    def exec(self, prep_res):
+    def prep(self, shared):
+        # In API mode, the initial request is already in pending_input
+        return shared.get("api_mode", False)
+
+    def exec(self, is_api_mode):
+        if is_api_mode:
+            # API mode - input already provided, skip CLI prompts
+            return None
+        
+        # CLI mode - show welcome and get input
         print("\n" + "=" * 80)
         print("WELCOME TO AI TRAVEL GUIDE")
         print("=" * 80)
@@ -25,9 +52,17 @@ class GetUserRequest(Node):
         return user_input
 
     def post(self, shared, prep_res, exec_res):
-        shared["user_request"] = exec_res
+        if shared.get("api_mode"):
+            # API mode - get input from pending_input (set by chat endpoint)
+            user_input = shared.get("pending_input", "")
+            shared["pending_input"] = None  # Clear it
+        else:
+            user_input = exec_res
+        
+        shared["user_request"] = user_input
         # Add to conversation history for dynamic analysis
-        shared["conversation_history"].append(f"Initial request: {exec_res}")
+        if user_input:
+            shared["conversation_history"].append(f"Initial request: {user_input}")
         return "default"
 
 
@@ -101,8 +136,7 @@ questions:
         shared["dynamic_questions"] = exec_res.get("questions", [])
         shared["analysis_reasoning"] = exec_res.get("reasoning", "")
 
-        print(f"\n[ANALYSIS] Trip info: {shared['trip_info']}")
-        print(f"[ANALYSIS] Reasoning: {shared['analysis_reasoning']}")
+        emit_event(shared, "thinking", f"Analyzing: {shared['analysis_reasoning']}")
 
         return "default"
 
@@ -155,11 +189,9 @@ class AskClarification(Node):
         shared["clarification_questions"] = exec_res
         shared["clarification_round"] = shared.get("clarification_round", 0) + 1
 
-        print("\n" + "-" * 80)
-        print("I have a few questions to help plan your perfect trip:")
-        for i, question in enumerate(exec_res, 1):
-            print(f"{i}. {question}")
-        print("-" * 80)
+        # Emit question event for frontend
+        questions_text = "\n".join([f"{i}. {q}" for i, q in enumerate(exec_res, 1)])
+        emit_event(shared, "question", questions_text, questions=exec_res)
 
         return "default"
 
@@ -168,20 +200,42 @@ class GetUserClarification(Node):
     """Get user's answers to clarification questions and add to conversation history"""
 
     def prep(self, shared):
-        return shared.get("clarification_questions", [])
+        return {
+            "questions": shared.get("clarification_questions", []),
+            "api_mode": shared.get("api_mode", False),
+            "pending_input": shared.get("pending_input"),
+        }
 
-    def exec(self, questions):
+    def exec(self, data):
+        if data["api_mode"]:
+            # API mode - check for pending input
+            if data["pending_input"]:
+                return data["pending_input"]
+            # No input yet - flow will be paused by post()
+            return None
+        
+        # CLI mode
         print("\nYour answers: ", end="")
         user_response = input()
         return user_response
 
     def post(self, shared, prep_res, exec_res):
+        if shared.get("api_mode"):
+            if exec_res is None:
+                # No input yet - pause flow and wait
+                shared["waiting_for"] = "clarification"
+                shared["flow_status"] = "waiting_input"
+                emit_event(shared, "question", "Please answer the questions above")
+                return "pause"  # Special action to pause flow
+            # Clear pending input
+            shared["pending_input"] = None
+        
         # Add the Q&A to conversation history for AnalyzeRequest to process
-        questions_text = " | ".join(prep_res)
+        questions_text = " | ".join(prep_res["questions"])
         shared["conversation_history"].append(f"Questions asked: {questions_text}")
         shared["conversation_history"].append(f"User answered: {exec_res}")
 
-        print(f"\n[RECORDED] Added response to conversation history")
+        emit_event(shared, "progress", "Recording your response...")
 
         # Return to analyze loop for re-analysis
         return "analyze"
@@ -193,6 +247,8 @@ class ResearchDestination(BatchNode):
     def prep(self, shared):
         destination = shared["trip_info"]["destination"]
         interests = shared["trip_info"].get("interests", [])
+
+        emit_event(shared, "searching", f"Researching {destination}...")
 
         # Generate search queries
         queries = [
@@ -208,12 +264,13 @@ class ResearchDestination(BatchNode):
         return queries
 
     def exec(self, query):
+        print(f"[SEARCHING] {query}")
         results = search_web(query)
         return {"query": query, "results": results}
 
     def post(self, shared, prep_res, exec_res_list):
         shared["destination_info"] = exec_res_list
-        print(f"\n[RESEARCH] Completed {len(exec_res_list)} searches")
+        emit_event(shared, "progress", f"Completed {len(exec_res_list)} destination searches", step="research")
         return "default"
 
 
@@ -237,6 +294,7 @@ class GatherTravelDetails(BatchNode):
         return categories
 
     def exec(self, query):
+        print(f"[GATHERING] {query}")
         results = search_web(query)
         return {"query": query, "results": results}
 
@@ -253,9 +311,7 @@ class GatherTravelDetails(BatchNode):
             elif "activities" in query or "things to do" in query:
                 shared["activities"].append(item)
 
-        print(
-            f"\n[DETAILS] Gathered travel details across {len(exec_res_list)} categories"
-        )
+        emit_event(shared, "progress", f"Gathered {len(exec_res_list)} travel detail categories", step="details")
         return "default"
 
 
@@ -547,9 +603,23 @@ class EvaluatePlan(Node):
         return {
             "plan": shared.get("final_travel_guide", ""),
             "revision_count": shared.get("plan_revision_count", 1),
+            "api_mode": shared.get("api_mode", False),
+            "pending_input": shared.get("pending_input"),
         }
 
     def exec(self, data):
+        if data["api_mode"]:
+            # API mode - emit plan and check for feedback
+            if data["pending_input"]:
+                user_response = data["pending_input"].strip().lower()
+                if user_response in ["done", "yes", "looks good", "perfect", ""]:
+                    return {"satisfied": True, "feedback": ""}
+                else:
+                    return {"satisfied": False, "feedback": data["pending_input"]}
+            # No feedback yet - return None to pause
+            return None
+        
+        # CLI mode
         print("\n" + "=" * 80)
         print("YOUR PERSONALIZED TRAVEL GUIDE")
         print("=" * 80 + "\n")
@@ -573,13 +643,34 @@ class EvaluatePlan(Node):
             return {"satisfied": False, "feedback": user_response}
 
     def post(self, shared, prep_res, exec_res):
+        if shared.get("api_mode"):
+            if exec_res is None:
+                # First time - emit plan and wait for feedback
+                plan = prep_res["plan"]
+                emit_event(shared, "plan", plan, is_final=False)
+                
+                if prep_res["revision_count"] >= 5:
+                    # Max revisions - auto-complete
+                    emit_event(shared, "complete", "Maximum revisions reached. Your plan is ready!")
+                    shared["flow_status"] = "complete"
+                    return "done"
+                
+                # Pause for feedback
+                shared["waiting_for"] = "plan_feedback"
+                shared["flow_status"] = "waiting_input"
+                return "pause"
+            
+            # Clear pending input
+            shared["pending_input"] = None
+        
         if exec_res["satisfied"]:
-            print("\n[FEEDBACK] User is satisfied with the plan!")
-            return
+            emit_event(shared, "complete", "Your travel plan is ready!")
+            shared["flow_status"] = "complete"
+            return "done"
         else:
             shared["user_feedback"] = exec_res["feedback"]
             shared["conversation_history"].append(f"User feedback on plan: {exec_res['feedback']}")
-            print(f"\n[FEEDBACK] User requested changes: {exec_res['feedback']}")
+            emit_event(shared, "thinking", f"Revising plan based on: {exec_res['feedback']}")
             return "revise"
 
 
@@ -620,3 +711,25 @@ Create an updated comprehensive travel guide that incorporates their requested c
         shared["plan_revision_count"] = shared.get("plan_revision_count", 0) + 1
         print(f"\n[REVISED] Plan updated based on feedback (revision #{shared['plan_revision_count']})")
         return "evaluate"
+
+
+class PauseNode(Node):
+    """
+    Terminal node for API mode pausing.
+    When the flow reaches this node, it means the flow is paused waiting for user input.
+    The flow will be restarted from the beginning when user provides input.
+    """
+
+    def prep(self, shared):
+        return shared.get("waiting_for", "user_input")
+
+    def exec(self, waiting_for):
+        # This node does nothing - it's just a terminal point
+        return waiting_for
+
+    def post(self, shared, prep_res, exec_res):
+        # Mark flow as paused
+        shared["flow_status"] = "waiting_input"
+        emit_event(shared, "progress", f"Waiting for: {exec_res}")
+        # Return None to end the flow cleanly
+        return None

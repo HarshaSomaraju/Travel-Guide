@@ -19,6 +19,7 @@ from nodes import (
     GetPlaceReviews,
     EvaluatePlan,
     ReplanFromFeedback,
+    PauseNode,
 )
 
 
@@ -58,6 +59,7 @@ def create_travel_guide_flow():
     calculate_budget = CalculateBudget()
     evaluate_plan = EvaluatePlan()
     replan = ReplanFromFeedback()
+    pause_node = PauseNode()
 
     # Connect nodes in sequence: Get request -> Analyze
     get_request >> analyze_request >> decide
@@ -66,6 +68,7 @@ def create_travel_guide_flow():
     decide - "clarify" >> ask_clarification
     ask_clarification >> get_clarification
     get_clarification - "analyze" >> analyze_request  # Loop back to re-analyze
+    get_clarification - "pause" >> pause_node  # API mode pause
 
     decide - "proceed" >> research
 
@@ -75,6 +78,7 @@ def create_travel_guide_flow():
     # Plan evaluation loop
     combine_plan >> evaluate_plan
     evaluate_plan - "revise" >> replan
+    evaluate_plan - "pause" >> pause_node  # API mode pause
     replan - "evaluate" >> evaluate_plan
     # "done" is terminal - no connection needed
 

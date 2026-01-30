@@ -10,7 +10,6 @@ from typing import List, Dict
 
 from groq import Groq
 import requests
-import os
 import subprocess
 
 def call_gemini_cli(prompt: str) -> str:
@@ -119,7 +118,13 @@ def call_llm(prompt: str) -> str:
     """
     Call LLM with the given prompt
     """
-    return call_gemini_cli(prompt)
+    server = os.getenv("LLM_SERVER", "gemini").lower()
+    if server == "gemini":
+        return call_gemini_cli(prompt)
+    elif server == "groq":
+        return call_llm_groq(prompt)
+    else:
+        raise ValueError(f"Unknown LLM server: {server}")
 
 
 # def call_llm(prompt: str) -> str:
