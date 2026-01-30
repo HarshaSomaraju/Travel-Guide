@@ -13,6 +13,7 @@ from nodes import (
     ResearchDestination,
     GatherTravelDetails,
     PlanDailyItinerary,
+    CreateNarrativeStory,
     CombineFinalPlan,
     IdentifyPlaces,
     GetPlaceReviews,
@@ -52,6 +53,7 @@ def create_travel_guide_flow():
     identify_places = IdentifyPlaces()
     get_reviews = GetPlaceReviews()
     plan_days = PlanDailyItinerary()
+    create_narrative = CreateNarrativeStory()
     combine_plan = CombineFinalPlan()
     calculate_budget = CalculateBudget()
     evaluate_plan = EvaluatePlan()
@@ -68,7 +70,7 @@ def create_travel_guide_flow():
     decide - "proceed" >> research
 
     # Main planning pipeline
-    research >> gather_details >> identify_places >> get_reviews >> plan_days >> calculate_budget >> combine_plan
+    research >> gather_details >> identify_places >> get_reviews >> plan_days >> calculate_budget >> create_narrative >> combine_plan
 
     # Plan evaluation loop
     combine_plan >> evaluate_plan

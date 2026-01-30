@@ -419,6 +419,70 @@ Can you fix the parsing issue correcting the yaml. Return only the yaml and noth
         return "default"
 
 
+class CreateNarrativeStory(Node):
+    """Create realistic, time-based travel narratives for each day"""
+
+    def prep(self, shared):
+        return {
+            "trip_info": shared.get("trip_info", {}),
+            "daily_plans": shared.get("daily_plans", {}),
+            "accommodations": shared.get("accommodations", []),
+            "transportation": shared.get("transportation", {}),
+            "place_reviews": shared.get("place_reviews", []),
+        }
+
+    def exec(self, data):
+        prompt = f"""
+You are creating a realistic, time-based travel narrative/story for a trip.
+
+TRIP DETAILS:
+{yaml.dump(data['trip_info'], default_flow_style=False)}
+
+DAILY ITINERARY:
+{yaml.dump(data['daily_plans'], default_flow_style=False)}
+
+ACCOMMODATIONS:
+{data['accommodations'][:2] if data['accommodations'] else 'General hotels'}
+
+TRANSPORTATION OPTIONS:
+{data['transportation']}
+
+TASK:
+Create a detailed, realistic "travel story" for each day that reads like a journal/guide with:
+
+1. **Specific Timings**: "6:30 AM - Wake up, 7:00 AM - Breakfast at hotel, 8:30 AM - Check out"
+2. **Realistic Logistics**: 
+   - Actual travel times between places (e.g., "45-min cab ride to temple")
+   - Crowd expectations (e.g., "expect 30-min queue at this time")
+   - Best time windows for activities
+3. **Practical Flow**:
+   - What to do during waits
+   - When to eat (considering hunger/energy)
+   - Rest periods for pacing
+4. **Alternatives**:
+   - "If it rains, visit the museum instead"
+   - "If temple is too crowded, come back at 4 PM"
+5. **Pro Tips**:
+   - Booking requirements
+   - What to carry
+   - Money/payment tips
+
+Format each day as a flowing narrative, not bullet points. Make it feel like a friend guiding them through the day.
+
+Example style:
+"Day 1: Your adventure begins! Your flight lands around 9:30 AM. After immigration (usually 20-30 mins), grab your bags and head to the prepaid taxi counter - it's safer and you won't get overcharged. The ride to your hotel in the old city takes about 45 minutes. Check-in is at 2 PM, but most hotels let you drop bags early. Use this time to grab brunch at the cafe next door - try their local specialty..."
+
+Return the narrative for ALL days of the trip.
+"""
+        response = call_llm(prompt)
+        return response
+
+    def post(self, shared, prep_res, exec_res):
+        shared["narrative_story"] = exec_res
+        print("\n[STORY] Created narrative travel story!")
+        return "default"
+
+
 class CombineFinalPlan(Node):
     """Combine all sections into a comprehensive travel guide"""
 
@@ -428,31 +492,43 @@ class CombineFinalPlan(Node):
             "daily_plans": shared["daily_plans"],
             "accommodations": shared["accommodations"],
             "transportation": shared["transportation"],
+            "narrative_story": shared.get("narrative_story", ""),
         }
 
     def exec(self, data):
         prompt = f"""
-Create a comprehensive, well-formatted travel guide.
+Create a comprehensive, well-formatted travel guide that combines structured information with a narrative story.
 
 Trip Information:
 {data['trip_info']}
 
-Daily Plans:
+Daily Plans (structured):
 {data['daily_plans']}
+
+Narrative Travel Story (realistic day-by-day flow with timings):
+{data['narrative_story']}
 
 Additional Info:
 - Accommodations: {data['accommodations'][:2] if data['accommodations'] else 'N/A'}
 - Transportation: {data['transportation']}
 
-Format as a beautiful travel guide with:
-1. Trip Overview
-2. Day-by-Day Itinerary (detailed) that is practically possible
-3. Accommodation Recommendations
-4. Transportation Guide
-5. Important Tips
-6. Budget Breakdown
+Format as a beautiful travel guide with these sections:
 
-Make it engaging, practical, and easy to follow.
+1. **Trip Overview** - Quick summary of the trip
+
+2. **Your Travel Story** - The narrative day-by-day experience with specific timings, logistics, and practical flow. This should read like a friend guiding you through each day.
+
+3. **Quick Reference Itinerary** - Condensed structured itinerary (for quick lookup)
+
+4. **Accommodation Options** - Where to stay with alternatives
+
+5. **Transportation Guide** - How to get around
+
+6. **Practical Tips & Alternatives** - What to do if plans change, rainy day options, etc.
+
+7. **Budget Breakdown** - Estimated costs
+
+Make the narrative story section the MAIN FOCUS - it should be detailed and feel like an immersive guide. The structured sections serve as quick reference.
 """
         response = call_llm(prompt)
         return response
@@ -460,7 +536,7 @@ Make it engaging, practical, and easy to follow.
     def post(self, shared, prep_res, exec_res):
         shared["final_travel_guide"] = exec_res
         shared["plan_revision_count"] = shared.get("plan_revision_count", 0) + 1
-        print("\n[COMPLETE] Travel guide generated!")
+        print("\n[COMPLETE] Travel guide with narrative story generated!")
         return "default"
 
 
@@ -499,7 +575,7 @@ class EvaluatePlan(Node):
     def post(self, shared, prep_res, exec_res):
         if exec_res["satisfied"]:
             print("\n[FEEDBACK] User is satisfied with the plan!")
-            return "done"
+            return
         else:
             shared["user_feedback"] = exec_res["feedback"]
             shared["conversation_history"].append(f"User feedback on plan: {exec_res['feedback']}")
