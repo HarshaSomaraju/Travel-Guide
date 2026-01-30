@@ -1,0 +1,37 @@
+/* Markdown prose styles - using standard CSS */
+.prose h1 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; }
+.prose h2 { font-size: 1.25rem; font-weight: 700; margin-top: 1.25rem; margin-bottom: 0.75rem; }
+.prose h3 { font-size: 1.125rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+.prose p { margin: 0.5rem 0; }
+.prose ul { list-style-type: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
+.prose ol { list-style-type: decimal; padding-left: 1.25rem; margin: 0.5rem 0; }
+.prose li { margin: 0.25rem 0; }
+.prose strong { font-weight: 600; }
+.prose blockquote { border-left: 4px solid #d1d5db; padding-left: 1rem; font-style: italic; margin: 1rem 0; }
+.prose code { background-color: #f3f4f6; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: 0.875rem; }
+.prose pre { background-color: #1f2937; color: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 1rem 0; }
+.prose hr { margin: 1.5rem 0; border-color: #d1d5db; }
+
+/* Table styles for markdown */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+}
+.prose th,
+.prose td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+.prose tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+.prose tr:hover {
+  background-color: #f3f4f6;
+}
