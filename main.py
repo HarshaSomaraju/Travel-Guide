@@ -21,42 +21,36 @@ def main():
     """
     Main function to run the travel guide flow
     """
-    # Initialize shared store
+    # Initialize shared store with dynamic structure
     shared = {
-        "user_request": "",
-        "trip_info": {
-            "destination": "",
-            "trip_type": "",
-            "duration_days": None,
-            "travelers": None,
-            "budget": "",
-            "travel_style": "",
-            "interests": [],
-            "start_date": "",
-        },
-        "missing_info": [],
-        "clarification_questions": [],
+        # Conversation tracking for dynamic question flow
+        "conversation_history": [],
+        
+        # Trip info - populated dynamically by LLM
+        "trip_info": {},
+        
+        # Clarification tracking
         "clarification_round": 0,
         "max_clarification_rounds": 5,
+        
+        # Research results
         "destination_info": {},
         "accommodations": [],
         "transportation": {},
         "activities": [],
         "restaurants": [],
+        
+        # Planning outputs
         "daily_plans": [],
-        "final_travel_guide": ""
+        "final_travel_guide": "",
+        "plan_revision_count": 0,
     }
 
     # Create and run the flow
     travel_flow = create_travel_guide_flow()
     travel_flow.run(shared)
 
-    # Display the final travel guide
-    print("\n" + "="*80)
-    print("YOUR PERSONALIZED TRAVEL GUIDE")
-    print("="*80 + "\n")
-    print(shared["final_travel_guide"])
-
+    # Final guide is already displayed by EvaluatePlan node
     save_trip(shared)
 
 if __name__ == "__main__":

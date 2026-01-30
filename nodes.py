@@ -26,91 +26,115 @@ class GetUserRequest(Node):
 
     def post(self, shared, prep_res, exec_res):
         shared["user_request"] = exec_res
+        # Add to conversation history for dynamic analysis
+        shared["conversation_history"].append(f"Initial request: {exec_res}")
         return "default"
 
 
-class ParseRequest(Node):
-    """Parse user request to extract structured information"""
+class AnalyzeRequest(Node):
+    """Dynamically analyze travel request and generate contextual questions"""
 
     def prep(self, shared):
-        return shared["user_request"]
+        return {
+            "conversation_history": shared.get("conversation_history", []),
+            "trip_info": shared.get("trip_info", {}),
+        }
 
-    def exec(self, user_request):
+    def exec(self, data):
+        conversation = data["conversation_history"]
+        current_info = data["trip_info"]
+        
+        # Format conversation history for the prompt
+        convo_text = "\n".join([f"- {msg}" for msg in conversation]) if conversation else "No conversation yet."
+        
         prompt = f"""
-Parse this travel request and extract key information. Return as YAML:
+You are an expert travel planner analyzing a user's travel request.
 
-User Request: "{user_request}"
+CONVERSATION SO FAR:
+{convo_text}
 
-Extract these fields (use null if not mentioned):
+INFORMATION GATHERED SO FAR:
+{yaml.dump(current_info, default_flow_style=False) if current_info else "None yet."}
+
+TASK:
+1. Extract any NEW travel information from the conversation into a structured format
+2. Analyze what's known and what's missing or unclear
+3. Generate 1-3 SMART, CONTEXTUAL follow-up questions (if needed)
+   - Questions should be specific to THIS trip, not generic
+   - Ask about things that would genuinely help create a better plan
+   - If you have enough info for a good plan, set needs_clarification to false
+
+Return ONLY this YAML:
 ```yaml
-destination: <destination name or null>
-trip_type: <local/domestic/international or null>
-duration_days: <number of days or null>
-travelers: <number of travelers or null>
-budget: <budget amount/range or null>
-travel_style: <luxury/mid-range/budget/backpacker or null>
-interests: <list of interests like culture, food, adventure, etc. or []>
-start_date: <date if mentioned or null>
+extracted_info:
+  destination: <string or null>
+  trip_type: <local/domestic/international or null>
+  duration_days: <number or null>
+  travelers: <number or null>
+  budget: <string like "$2000" or "mid-range" or null>
+  travel_style: <luxury/mid-range/budget/backpacker or null>
+  interests: <list of specific interests or []>
+  start_date: <date string or null>
+  special_requirements: <any special needs, accessibility, dietary, etc. or null>
+  
+needs_clarification: <true/false>
+reasoning: <brief explanation of what's known and what's missing>
+questions:
+  - <question 1 if needed>
+  - <question 2 if needed>
 ```
-
-Output only the YAML block.
 """
         response = call_llm(prompt)
         yaml_str = extract_yaml_str(response)
         parsed = yaml.safe_load(yaml_str)
-
         return parsed
 
     def post(self, shared, prep_res, exec_res):
-        # Update trip_info with parsed data
-        for key, value in exec_res.items():
+        # Update trip_info with newly extracted data
+        extracted = exec_res.get("extracted_info", {})
+        for key, value in extracted.items():
             if value is not None and value != [] and value != "":
                 shared["trip_info"][key] = value
 
-        # Identify missing critical information
-        missing = []
-        critical_fields = [
-            "destination",
-            "duration_days",
-            "travelers",
-            "budget",
-            "travel_style",
-        ]
+        # Store analysis results
+        shared["needs_clarification"] = exec_res.get("needs_clarification", False)
+        shared["dynamic_questions"] = exec_res.get("questions", [])
+        shared["analysis_reasoning"] = exec_res.get("reasoning", "")
 
-        for field in critical_fields:
-            if not shared["trip_info"].get(field):
-                missing.append(field)
-
-        shared["missing_info"] = missing
-
-        print(f"\n[PARSED] Trip info: {shared['trip_info']}")
-        print(f"[MISSING] Need clarification on: {missing}")
+        print(f"\n[ANALYSIS] Trip info: {shared['trip_info']}")
+        print(f"[ANALYSIS] Reasoning: {shared['analysis_reasoning']}")
 
         return "default"
 
 
 class DecideNeedInfo(Node):
-    """Agent node to decide if clarification is needed"""
+    """Agent node to decide if clarification is needed based on LLM analysis"""
 
     def prep(self, shared):
         return {
-            "missing_info": shared["missing_info"],
-            "clarification_round": shared["clarification_round"],
-            "max_rounds": shared["max_clarification_rounds"],
-            "trip_info": shared["trip_info"],
+            "needs_clarification": shared.get("needs_clarification", False),
+            "clarification_round": shared.get("clarification_round", 0),
+            "max_rounds": shared.get("max_clarification_rounds", 5),
+            "has_destination": bool(shared.get("trip_info", {}).get("destination")),
         }
 
     def exec(self, data):
-        missing = data["missing_info"]
         round_num = data["clarification_round"]
         max_rounds = data["max_rounds"]
 
-        # If no missing info or exceeded max rounds, proceed
-        if not missing or round_num >= max_rounds:
+        # Must have at least a destination to proceed
+        if not data["has_destination"]:
+            return "clarify"
+
+        # If exceeded max rounds, proceed anyway
+        if round_num >= max_rounds:
             return "proceed"
 
-        # Otherwise, ask for clarification
-        return "clarify"
+        # Use the LLM's judgment
+        if data["needs_clarification"]:
+            return "clarify"
+
+        return "proceed"
 
     def post(self, shared, prep_res, exec_res):
         print(f"\n[DECISION] Action: {exec_res}")
@@ -118,47 +142,21 @@ class DecideNeedInfo(Node):
 
 
 class AskClarification(Node):
-    """Generate and ask clarification questions"""
+    """Display the dynamically generated clarification questions"""
 
     def prep(self, shared):
-        return {
-            "missing_info": shared["missing_info"],
-            "trip_info": shared["trip_info"],
-        }
+        return shared.get("dynamic_questions", [])
 
-    def exec(self, data):
-        missing = data["missing_info"]
-        trip_info = data["trip_info"]
-
-        prompt = f"""
-Generate friendly clarification questions for a travel planner.
-
-Current trip info: {trip_info}
-Missing information: {missing}
-
-Create 2-3 specific, conversational questions to gather the missing details.
-Make them natural and helpful.
-
-Return as YAML:
-```yaml
-questions:
-  - <question 1>
-  - <question 2>
-  - <question 3 if needed>
-```
-"""
-        response = call_llm(prompt)
-        yaml_str = extract_yaml_str(response)
-        parsed = yaml.safe_load(yaml_str)
-
-        return parsed["questions"]
+    def exec(self, questions):
+        # Questions are already generated by AnalyzeRequest
+        return questions if questions else ["What destination are you considering?"]
 
     def post(self, shared, prep_res, exec_res):
         shared["clarification_questions"] = exec_res
-        shared["clarification_round"] += 1
+        shared["clarification_round"] = shared.get("clarification_round", 0) + 1
 
         print("\n" + "-" * 80)
-        print("I need a bit more information:")
+        print("I have a few questions to help plan your perfect trip:")
         for i, question in enumerate(exec_res, 1):
             print(f"{i}. {question}")
         print("-" * 80)
@@ -167,64 +165,26 @@ questions:
 
 
 class GetUserClarification(Node):
-    """Get user's answers to clarification questions"""
+    """Get user's answers to clarification questions and add to conversation history"""
 
     def prep(self, shared):
-        return shared["clarification_questions"]
+        return shared.get("clarification_questions", [])
 
     def exec(self, questions):
-        print("\nPlease answer the questions (all in one response):")
-        user_response = input("Your answers: ")
+        print("\nYour answers: ", end="")
+        user_response = input()
         return user_response
 
     def post(self, shared, prep_res, exec_res):
-        # Parse user response to update trip_info
-        questions_str = "\n".join(prep_res)
+        # Add the Q&A to conversation history for AnalyzeRequest to process
+        questions_text = " | ".join(prep_res)
+        shared["conversation_history"].append(f"Questions asked: {questions_text}")
+        shared["conversation_history"].append(f"User answered: {exec_res}")
 
-        prompt = f"""
-The user was asked these clarification questions:
-{questions_str}
+        print(f"\n[RECORDED] Added response to conversation history")
 
-User's response: "{exec_res}"
-
-Update the trip information based on the response. Return as YAML:
-```yaml
-destination: <value or null>
-duration_days: <value or null>
-travelers: <value or null>
-budget: <value or null>
-travel_style: <value or null>
-interests: <list or []>
-start_date: <value or null>
-```
-"""
-        response = call_llm(prompt)
-        yaml_str = extract_yaml_str(response)
-        parsed = yaml.safe_load(yaml_str)
-
-        # Update trip_info
-        for key, value in parsed.items():
-            if value is not None and value != [] and value != "":
-                shared["trip_info"][key] = value
-
-        # Re-evaluate missing info
-        missing = []
-        critical_fields = [
-            "destination",
-            "duration_days",
-            "travelers",
-            "budget",
-            "travel_style",
-        ]
-        for field in critical_fields:
-            if not shared["trip_info"].get(field):
-                missing.append(field)
-
-        shared["missing_info"] = missing
-
-        print(f"\n[UPDATED] Trip info: {shared['trip_info']}")
-
-        return "decide"
+        # Return to analyze loop for re-analysis
+        return "analyze"
 
 
 class ResearchDestination(BatchNode):
@@ -499,5 +459,88 @@ Make it engaging, practical, and easy to follow.
 
     def post(self, shared, prep_res, exec_res):
         shared["final_travel_guide"] = exec_res
+        shared["plan_revision_count"] = shared.get("plan_revision_count", 0) + 1
         print("\n[COMPLETE] Travel guide generated!")
         return "default"
+
+
+class EvaluatePlan(Node):
+    """Ask user if they're satisfied with the plan or have feedback"""
+
+    def prep(self, shared):
+        return {
+            "plan": shared.get("final_travel_guide", ""),
+            "revision_count": shared.get("plan_revision_count", 1),
+        }
+
+    def exec(self, data):
+        print("\n" + "=" * 80)
+        print("YOUR PERSONALIZED TRAVEL GUIDE")
+        print("=" * 80 + "\n")
+        print(data["plan"])
+        print("\n" + "=" * 80)
+        
+        if data["revision_count"] >= 5:
+            print("\n(Maximum revisions reached)")
+            return {"satisfied": True, "feedback": ""}
+        
+        print("\nAre you satisfied with this plan?")
+        print("  - Type 'done' or 'yes' if you're happy with it")
+        print("  - Or describe any changes you'd like (e.g., 'add more food spots', 'reduce budget')")
+        print()
+        
+        user_response = input("Your feedback: ").strip()
+        
+        if user_response.lower() in ["done", "yes", "looks good", "perfect", ""]:
+            return {"satisfied": True, "feedback": ""}
+        else:
+            return {"satisfied": False, "feedback": user_response}
+
+    def post(self, shared, prep_res, exec_res):
+        if exec_res["satisfied"]:
+            print("\n[FEEDBACK] User is satisfied with the plan!")
+            return "done"
+        else:
+            shared["user_feedback"] = exec_res["feedback"]
+            shared["conversation_history"].append(f"User feedback on plan: {exec_res['feedback']}")
+            print(f"\n[FEEDBACK] User requested changes: {exec_res['feedback']}")
+            return "revise"
+
+
+class ReplanFromFeedback(Node):
+    """Revise the travel plan based on user feedback"""
+
+    def prep(self, shared):
+        return {
+            "current_plan": shared.get("final_travel_guide", ""),
+            "feedback": shared.get("user_feedback", ""),
+            "trip_info": shared.get("trip_info", {}),
+            "daily_plans": shared.get("daily_plans", {}),
+        }
+
+    def exec(self, data):
+        prompt = f"""
+You are revising a travel plan based on user feedback.
+
+CURRENT PLAN:
+{data['current_plan']}
+
+USER'S FEEDBACK:
+"{data['feedback']}"
+
+TRIP DETAILS:
+{yaml.dump(data['trip_info'], default_flow_style=False)}
+
+TASK:
+Revise the travel plan to address the user's feedback. Keep what's working well and modify only what's needed to address their concerns.
+
+Create an updated comprehensive travel guide that incorporates their requested changes.
+"""
+        response = call_llm(prompt)
+        return response
+
+    def post(self, shared, prep_res, exec_res):
+        shared["final_travel_guide"] = exec_res
+        shared["plan_revision_count"] = shared.get("plan_revision_count", 0) + 1
+        print(f"\n[REVISED] Plan updated based on feedback (revision #{shared['plan_revision_count']})")
+        return "evaluate"
